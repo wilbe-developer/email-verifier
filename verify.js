@@ -60,19 +60,19 @@ export async function verifyEmail(localPart, domain) {
 
     try {
       console.log(`[verifyEmail] handshake attempt #${attempt} with ${mxHost}`);
-      // Connect (EHLO/HELO happens automatically)
+      // establish connection & EHLO
       await new Promise((resolve, reject) =>
         conn.connect(err => err ? reject(err) : resolve())
       );
 
-      console.log(`[verifyEmail] sending MAIL FROM`);
+      console.log(`[verifyEmail] sending envelope to <${full}>`);
+      // this issues MAIL FROM + RCPT TO under the hood
       await new Promise((resolve, reject) =>
-        conn.mail({ from: `verifier@${domain}` }, err => err ? reject(err) : resolve())
-      );
-
-      console.log(`[verifyEmail] sending RCPT TO <${full}>`);
-      await new Promise((resolve, reject) =>
-        conn.rcpt({ to: full }, err => err ? reject(err) : resolve())
+        conn.send(
+          { from: `verifier@${domain}`, to: [full] },
+          '', // no message body
+          (err, info) => err ? reject(err) : resolve(info)
+        )
       );
 
       console.log(`[verifyEmail] RCPT-TO accepted`);
