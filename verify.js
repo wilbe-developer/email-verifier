@@ -1,6 +1,6 @@
-const dns = require('dns');
-const nodemailer = require('nodemailer');
-const util = require('util');
+import dns from 'dns';
+import nodemailer from 'nodemailer';
+import util from 'util';
 
 const dnsResolveMx = util.promisify(dns.resolveMx);
 
@@ -21,7 +21,7 @@ const dnsResolveMx = util.promisify(dns.resolveMx);
  * @param {string} domain    – the domain to verify against (e.g. "bham.ac.uk")
  * @returns {Promise<VerificationResult>}
  */
-async function verifyEmail(localPart, domain) {
+export async function verifyEmail(localPart, domain) {
   const start = Date.now();
   const full = `${localPart}@${domain}`;
   console.log(`[verifyEmail] START verifying "${full}"`);
@@ -122,7 +122,7 @@ async function verifyEmail(localPart, domain) {
  * @param {string} domain
  * @returns {Promise<boolean>} true if the fake address is accepted → catch-all
  */
-async function testForCatchall(domain) {
+export async function testForCatchall(domain) {
   const randomStr = Math.random().toString(36).slice(2, 10);
   const fakeLocal = `noone-${randomStr}`;
   console.log(`[testForCatchall] testing catch-all with ${fakeLocal}@${domain}`);
@@ -130,8 +130,3 @@ async function testForCatchall(domain) {
   console.log(`[testForCatchall] result:`, result);
   return result.ok === true;
 }
-
-module.exports = {
-  verifyEmail,
-  testForCatchall
-};
