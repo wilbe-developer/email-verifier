@@ -1,5 +1,6 @@
 import dns from 'dns';
-import SMTPConnection from 'nodemailer/lib/smtp-connection';
+// ← Change directory import to the actual index.js file
+import SMTPConnection from 'nodemailer/lib/smtp-connection/index.js';
 import util from 'util';
 
 const dnsResolveMx = util.promisify(dns.resolveMx);
@@ -71,7 +72,7 @@ export async function verifyEmail(localPart, domain) {
       return { ok: true, rejected: false, reason: 'accepted', latencyMs: latency };
     } catch (err) {
       lastErr = err;
-      const code = err && err.responseCode;
+      const code = err.responseCode;
       // 5xx = hard reject
       if (code >= 500 && code < 600) {
         console.log(`[verifyEmail] recipient explicitly rejected (code=${code})`);
@@ -81,7 +82,10 @@ export async function verifyEmail(localPart, domain) {
       }
 
       // 4xx = grey-list/timeout, maybe retry
-      console.log(`[verifyEmail] RCPT-TO deferral (code=${code}), ${attempt < maxAttempts ? 'retrying' : 'giving up'}`, err);
+      console.log(
+        `[verifyEmail] RCPT-TO deferral (code=${code}), ${attempt < maxAttempts ? 'retrying' : 'giving up'}`,
+        err
+      );
       await conn.close().catch(() => {});
 
       if (attempt < maxAttempts) {
