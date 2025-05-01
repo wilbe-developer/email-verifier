@@ -1,5 +1,4 @@
 import dns from 'dns';
-// ← Change directory import to the actual index.js file
 import SMTPConnection from 'nodemailer/lib/smtp-connection/index.js';
 import util from 'util';
 
@@ -61,24 +60,34 @@ export async function verifyEmail(localPart, domain) {
 
     try {
       console.log(`[verifyEmail] handshake attempt #${attempt} with ${mxHost}`);
-      await conn.connect();
-      await conn.greet();
+      // Connect (EHLO/HELO happens automatically)
+      await new Promise((resolve, reject) =>
+        conn.connect(err => err ? reject(err) : resolve())
+      );
+
       console.log(`[verifyEmail] sending MAIL FROM`);
-      await conn.mail({ from: `verifier@${domain}` });
+      await new Promise((resolve, reject) =>
+        conn.mail({ from: `verifier@${domain}` }, err => err ? reject(err) : resolve())
+      );
+
       console.log(`[verifyEmail] sending RCPT TO <${full}>`);
-      await conn.rcpt({ to: full });
+      await new Promise((resolve, reject) =>
+        conn.rcpt({ to: full }, err => err ? reject(err) : resolve())
+      );
+
       console.log(`[verifyEmail] RCPT-TO accepted`);
-      await conn.quit();
+      await new Promise(resolve => conn.quit(resolve));
 
       const latency = Date.now() - start;
       return { ok: true, rejected: false, reason: 'accepted', latencyMs: latency };
     } catch (err) {
       lastErr = err;
       const code = err.responseCode;
+
       // 5xx = hard reject
       if (code >= 500 && code < 600) {
         console.log(`[verifyEmail] recipient explicitly rejected (code=${code})`);
-        await conn.close().catch(() => {});
+        try { conn.close(); } catch {}
         const latency = Date.now() - start;
         return { ok: false, rejected: true, reason: 'recipient_rejected', latencyMs: latency };
       }
@@ -88,7 +97,7 @@ export async function verifyEmail(localPart, domain) {
         `[verifyEmail] RCPT-TO deferral (code=${code}), ${attempt < maxAttempts ? 'retrying' : 'giving up'}`,
         err
       );
-      await conn.close().catch(() => {});
+      try { conn.close(); } catch {}
 
       if (attempt < maxAttempts) {
         // exponential back-off: 5s, then 10s...
