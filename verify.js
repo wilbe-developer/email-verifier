@@ -1,36 +1,42 @@
-import dns from 'dns';
-import nodemailer from 'nodemailer';
-import util from 'util';
+const dns = require('dns');
+const nodemailer = require('nodemailer');
+const util = require('util');
 
 const dnsResolveMx = util.promisify(dns.resolveMx);
 
-export interface VerificationResult {
-  ok: boolean;            // true only if recipient accepted
-  rejected: boolean;      // true only if recipient explicitly rejected
-  reason: 'no_mx' | 'dns_error' | 'handshake_error' | 'recipient_rejected' | 'check_error' | 'accepted';
-  error?: string;         // raw error message for dns/handshake/check errors
-  latencyMs: number;      // round-trip time
-}
+/**
+ * @typedef {Object} VerificationResult
+ * @property {boolean} ok            – true only if RCPT-TO was accepted
+ * @property {boolean} rejected      – true only if RCPT-TO was explicitly rejected
+ * @property {'no_mx'|'dns_error'|'handshake_error'|'recipient_rejected'|'check_error'|'accepted'} reason
+ * @property {string=} error         – raw error message on DNS/handshake/check errors
+ * @property {number} latencyMs      – round-trip time in ms
+ */
 
 /**
  * Attempt to verify a single address via SMTP RCPT-TO.
- * Logs each stage: MX lookup, chosen MX, handshake, RCPT-TO check.
+ * Logs each step and returns a VerificationResult.
+ *
+ * @param {string} localPart – the part before the @ (e.g. "j.l.cutler")
+ * @param {string} domain    – the domain to verify against (e.g. "bham.ac.uk")
+ * @returns {Promise<VerificationResult>}
  */
-export async function verifyEmail(email: string, domain: string): Promise<VerificationResult> {
+async function verifyEmail(localPart, domain) {
   const start = Date.now();
-  console.log(`[verifyEmail] START → verifying "${email}@${domain}"`);
+  const full = `${localPart}@${domain}`;
+  console.log(`[verifyEmail] START verifying "${full}"`);
 
   // 1) MX lookup
   let mxRecords;
   try {
     mxRecords = await dnsResolveMx(domain);
     console.log(`[verifyEmail] MX records for ${domain}:`, mxRecords);
-    if (!mxRecords || mxRecords.length === 0) {
+    if (!Array.isArray(mxRecords) || mxRecords.length === 0) {
       const latency = Date.now() - start;
-      console.log(`[verifyEmail] no MX records found (latency ${latency}ms)`);
-      return { ok:false, rejected:false, reason:'no_mx', latencyMs: latency };
+      console.log(`[verifyEmail] no MX found (latency ${latency}ms)`);
+      return { ok: false, rejected: false, reason: 'no_mx', latencyMs: latency };
     }
-  } catch (err: any) {
+  } catch (err) {
     const latency = Date.now() - start;
     console.log(`[verifyEmail] DNS lookup error for ${domain}:`, err);
     return {
@@ -58,10 +64,10 @@ export async function verifyEmail(email: string, domain: string): Promise<Verifi
   });
 
   try {
-    console.log(`[verifyEmail] initiating SMTP handshake with ${mxHost}`);
+    console.log(`[verifyEmail] performing SMTP verify() handshake with ${mxHost}`);
     await transporter.verify();
     console.log(`[verifyEmail] handshake succeeded`);
-  } catch (err: any) {
+  } catch (err) {
     const latency = Date.now() - start;
     console.log(`[verifyEmail] handshake error:`, err);
     return {
@@ -75,8 +81,8 @@ export async function verifyEmail(email: string, domain: string): Promise<Verifi
 
   // 4) RCPT-TO check
   try {
-    console.log(`[verifyEmail] RFC5321 RCPT-TO check for "${email}@${domain}"`);
-    const info = await transporter.checkRecipient(email);
+    console.log(`[verifyEmail] performing RCPT-TO for "${full}"`);
+    const info = await transporter.checkRecipient(localPart);
     const latency = Date.now() - start;
     console.log(`[verifyEmail] checkRecipient response:`, info);
 
@@ -97,7 +103,7 @@ export async function verifyEmail(email: string, domain: string): Promise<Verifi
       reason: 'accepted',
       latencyMs: latency
     };
-  } catch (err: any) {
+  } catch (err) {
     const latency = Date.now() - start;
     console.log(`[verifyEmail] checkRecipient error (grey-list/timeout):`, err);
     return {
@@ -112,13 +118,20 @@ export async function verifyEmail(email: string, domain: string): Promise<Verifi
 
 /**
  * Test for catch-all by verifying a random nonexistent address.
- * Logs the fake address and the result.
+ *
+ * @param {string} domain
+ * @returns {Promise<boolean>} true if the fake address is accepted → catch-all
  */
-export async function testForCatchall(domain: string): Promise<boolean> {
-  const randomStr = Math.random().toString(36).substr(2,8);
-  const fake = `noone-${randomStr}@${domain}`;
-  console.log(`[testForCatchall] testing fake address: ${fake}`);
-  const result = await verifyEmail(randomStr, domain);
-  console.log(`[testForCatchall] result for ${fake}:`, result);
+async function testForCatchall(domain) {
+  const randomStr = Math.random().toString(36).slice(2, 10);
+  const fakeLocal = `noone-${randomStr}`;
+  console.log(`[testForCatchall] testing catch-all with ${fakeLocal}@${domain}`);
+  const result = await verifyEmail(fakeLocal, domain);
+  console.log(`[testForCatchall] result:`, result);
   return result.ok === true;
 }
+
+module.exports = {
+  verifyEmail,
+  testForCatchall
+};
