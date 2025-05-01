@@ -11,17 +11,18 @@ app.post('/verify', async (req, res) => {
   if (!email || !domain) {
     return res.status(400).json({ error: 'email & domain required' });
   }
-  try {
-    // split full address if needed
-    const [local, dom] = email.includes('@')
-      ? email.split('@', 2)
-      : [email, domain];
 
+  // split full address if they sent it, otherwise use the passed-in domain
+  const [local, dom] = email.includes('@')
+    ? email.split('@', 2)
+    : [email, domain];
+
+  try {
     const result = await verifyEmail(local, dom);
     return res.json(result);
   } catch (err) {
     console.error('[/verify] error:', err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -32,12 +33,13 @@ app.post('/test-catchall', async (req, res) => {
   if (!domain) {
     return res.status(400).json({ error: 'domain required' });
   }
+
   try {
     const ok = await testForCatchall(domain);
     return res.json({ ok });
   } catch (err) {
     console.error('[/test-catchall] error:', err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
