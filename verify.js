@@ -1,4 +1,5 @@
 import dns from 'dns';
+// ← point at the actual index.js
 import SMTPConnection from 'nodemailer/lib/smtp-connection/index.js';
 import util from 'util';
 
@@ -42,7 +43,6 @@ export async function verifyEmail(localPart, domain) {
   const mxHost = mxRecords[0].exchange;
   console.log(`[verifyEmail] selected MX host: ${mxHost}`);
 
-  // We'll allow one RCPT retry on 4xx before giving up:
   const maxAttempts = 2;
   let lastErr;
 
@@ -60,17 +60,17 @@ export async function verifyEmail(localPart, domain) {
 
     try {
       console.log(`[verifyEmail] handshake attempt #${attempt} with ${mxHost}`);
-      // establish connection & EHLO
+      // connect + EHLO etc.
       await new Promise((resolve, reject) =>
         conn.connect(err => err ? reject(err) : resolve())
       );
 
       console.log(`[verifyEmail] sending envelope to <${full}>`);
-      // this issues MAIL FROM + RCPT TO under the hood
+      // SMTPConnection.send() wraps MAIL FROM + RCPT TO + DATA
       await new Promise((resolve, reject) =>
         conn.send(
           { from: `verifier@${domain}`, to: [full] },
-          '', // no message body
+          '', // no message body → triggers EMESSAGE after RCPT
           (err, info) => err ? reject(err) : resolve(info)
         )
       );
@@ -80,10 +80,18 @@ export async function verifyEmail(localPart, domain) {
 
       const latency = Date.now() - start;
       return { ok: true, rejected: false, reason: 'accepted', latencyMs: latency };
+
     } catch (err) {
       lastErr = err;
-      const code = err.responseCode;
+      // **NEW** treat "Empty message" as success of RCPT-TO
+      if ((err as any).code === 'EMESSAGE') {
+        console.log(`[verifyEmail] RCPT-TO accepted (EMESSAGE)`);
+        try { await new Promise(resolve => conn.quit(resolve)); } catch {}
+        const latency = Date.now() - start;
+        return { ok: true, rejected: false, reason: 'accepted', latencyMs: latency };
+      }
 
+      const code = (err as any).responseCode;
       // 5xx = hard reject
       if (code >= 500 && code < 600) {
         console.log(`[verifyEmail] recipient explicitly rejected (code=${code})`);
