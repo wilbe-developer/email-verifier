@@ -52,6 +52,8 @@ export async function verifyEmail(localPart, domain) {
       host: mxHost,
       port: 25,
       secure: false,
+      logger: true,
+      debug: true,
       connectionTimeout: 5_000,
       greetingTimeout:  5_000,
       socketTimeout:    5_000,
