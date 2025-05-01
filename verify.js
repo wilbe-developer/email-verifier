@@ -1,5 +1,4 @@
 import dns from 'dns';
-// ← point at the actual index.js
 import SMTPConnection from 'nodemailer/lib/smtp-connection/index.js';
 import util from 'util';
 
@@ -7,11 +6,11 @@ const dnsResolveMx = util.promisify(dns.resolveMx);
 
 /**
  * @typedef {Object} VerificationResult
- * @property {boolean} ok            – true only if RCPT-TO was accepted
- * @property {boolean} rejected      – true only if RCPT-TO was explicitly rejected (5xx)
+ * @property {boolean} ok
+ * @property {boolean} rejected
  * @property {'no_mx'|'dns_error'|'handshake_error'|'recipient_rejected'|'check_error'|'accepted'} reason
- * @property {string=} error         – raw error message for DNS/handshake/RCPT failures
- * @property {number} latencyMs      – round-trip time in ms
+ * @property {string=} error
+ * @property {number} latencyMs
  */
 
 /**
@@ -60,17 +59,15 @@ export async function verifyEmail(localPart, domain) {
 
     try {
       console.log(`[verifyEmail] handshake attempt #${attempt} with ${mxHost}`);
-      // connect + EHLO etc.
       await new Promise((resolve, reject) =>
         conn.connect(err => err ? reject(err) : resolve())
       );
 
       console.log(`[verifyEmail] sending envelope to <${full}>`);
-      // SMTPConnection.send() wraps MAIL FROM + RCPT TO + DATA
       await new Promise((resolve, reject) =>
         conn.send(
           { from: `verifier@${domain}`, to: [full] },
-          '', // no message body → triggers EMESSAGE after RCPT
+          '',
           (err, info) => err ? reject(err) : resolve(info)
         )
       );
@@ -83,16 +80,16 @@ export async function verifyEmail(localPart, domain) {
 
     } catch (err) {
       lastErr = err;
-      // **NEW** treat "Empty message" as success of RCPT-TO
-      if ((err as any).code === 'EMESSAGE') {
+
+      // **TREAT EMESSAGE AS SUCCESS**
+      if (err.code === 'EMESSAGE') {
         console.log(`[verifyEmail] RCPT-TO accepted (EMESSAGE)`);
         try { await new Promise(resolve => conn.quit(resolve)); } catch {}
         const latency = Date.now() - start;
         return { ok: true, rejected: false, reason: 'accepted', latencyMs: latency };
       }
 
-      const code = (err as any).responseCode;
-      // 5xx = hard reject
+      const code = err.responseCode;
       if (code >= 500 && code < 600) {
         console.log(`[verifyEmail] recipient explicitly rejected (code=${code})`);
         try { conn.close(); } catch {}
@@ -100,7 +97,6 @@ export async function verifyEmail(localPart, domain) {
         return { ok: false, rejected: true, reason: 'recipient_rejected', latencyMs: latency };
       }
 
-      // 4xx = grey-list/timeout, maybe retry
       console.log(
         `[verifyEmail] RCPT-TO deferral (code=${code}), ${attempt < maxAttempts ? 'retrying' : 'giving up'}`,
         err
@@ -108,7 +104,6 @@ export async function verifyEmail(localPart, domain) {
       try { conn.close(); } catch {}
 
       if (attempt < maxAttempts) {
-        // exponential back-off: 5s, then 10s...
         const wait = 5_000 * attempt;
         await new Promise(r => setTimeout(r, wait));
         continue;
@@ -119,7 +114,6 @@ export async function verifyEmail(localPart, domain) {
     }
   }
 
-  // fallback (should never hit)
   const latency = Date.now() - start;
   return { ok: false, rejected: false, reason: 'check_error', error: lastErr?.message, latencyMs: latency };
 }
@@ -130,8 +124,7 @@ export async function verifyEmail(localPart, domain) {
 export async function testForCatchall(domain) {
   const randomStr = Math.random().toString(36).slice(2, 10);
   const fakeLocal = `noone-${randomStr}`;
-  const fakeFull  = `${fakeLocal}@${domain}`;
-  console.log(`[testForCatchall] probing ${fakeFull}`);
+  console.log(`[testForCatchall] probing ${fakeLocal}@${domain}`);
   const result = await verifyEmail(fakeLocal, domain);
   console.log(`[testForCatchall] result:`, result);
   return result.ok === true;
